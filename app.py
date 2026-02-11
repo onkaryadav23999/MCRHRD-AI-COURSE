@@ -1,98 +1,76 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import matplotlib.pyplot as plt
 
-# ---------------------------
-# Page Configuration
-# ---------------------------
-st.set_page_config(
-    page_title="Data Dashboard",
-    page_icon="📊",
-    layout="wide"
+st.set_page_config(page_title="NFHS-4 Dashboard", layout="wide")
+
+st.title("NFHS-4 India Health Dashboard")
+
+# Load data
+@st.cache_data
+def load_data():
+    file_path = "All India National Family Health Survey4.xlsx"
+    df = pd.read_excel(file_path, sheet_name="in")
+    df = df.dropna(how="all")
+    df.columns = df.columns.str.strip()
+    return df
+
+df = load_data()
+
+# First column assumed as State/UT
+area_col = df.columns[0]
+
+# Sidebar filters
+st.sidebar.header("Filters")
+
+areas = df[area_col].dropna().unique()
+selected_areas = st.sidebar.multiselect(
+    "Select State/UT",
+    areas,
+    default=areas[:5]
 )
 
-st.title("📊 Interactive Data Dashboard")
+filtered_df = df[df[area_col].isin(selected_areas)]
 
-# ---------------------------
-# File Upload
-# ---------------------------
-uploaded_file = st.file_uploader("Upload your CSV or Excel file", type=["csv", "xlsx"])
+# Indicator selection
+numeric_cols = filtered_df.select_dtypes(include="number").columns
+indicator = st.sidebar.selectbox("Select Indicator", numeric_cols)
 
-if uploaded_file is not None:
-    
-    # Read file
-    if uploaded_file.name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
-    else:
-        df = pd.read_excel(uploaded_file)
+# Chart
+st.subheader(f"{indicator} by State/UT")
 
-    st.success("File Uploaded Successfully!")
+plot_df = filtered_df[[area_col, indicator]].dropna()
 
-    # Show raw data
-    if st.checkbox("Show Raw Data"):
-        st.dataframe(df)
+fig, ax = plt.subplots()
+ax.bar(plot_df[area_col], plot_df[indicator])
+plt.xticks(rotation=90)
+ax.set_ylabel(indicator)
+st.pyplot(fig)
 
-    # ---------------------------
-    # Sidebar Filters
-    # ---------------------------
-    st.sidebar.header("🔎 Filter Data")
+# Summary
+col1, col2, col3 = st.columns(3)
 
-    # Select column for filtering
-    column = st.sidebar.selectbox("Select Column to Filter", df.columns)
+if not plot_df.empty:
+    col1.metric("Average", round(plot_df[indicator].mean(), 2))
+    col2.metric("Max", round(plot_df[indicator].max(), 2))
+    col3.metric("Min", round(plot_df[indicator].min(), 2))
 
-    unique_values = df[column].unique()
-    selected_values = st.sidebar.multiselect(
-        "Select Values",
-        unique_values,
-        default=unique_values
-    )
+# Top/Bottom
+st.subheader("Top & Bottom States")
 
-    filtered_df = df[df[column].isin(selected_values)]
+top_n = st.slider("Select Top/Bottom N", 3, 10, 5)
+rank_df = plot_df.sort_values(by=indicator, ascending=False)
 
-    # ---------------------------
-    # KPI Section
-    # ---------------------------
-    st.subheader("📌 Key Metrics")
+col4, col5 = st.columns(2)
 
-    col1, col2, col3 = st.columns(3)
+with col4:
+    st.write("Top States")
+    st.dataframe(rank_df.head(top_n))
 
-    with col1:
-        st.metric("Total Rows", len(filtered_df))
+with col5:
+    st.write("Bottom States")
+    st.dataframe(rank_df.tail(top_n))
 
-    with col2:
-        numeric_cols = filtered_df.select_dtypes(include='number').columns
-        if len(numeric_cols) > 0:
-            st.metric("Average (First Numeric Column)", 
-                      round(filtered_df[numeric_cols[0]].mean(), 2))
-        else:
-            st.metric("No Numeric Data", "-")
-
-    with col3:
-        st.metric("Columns", len(filtered_df.columns))
-
-    # ---------------------------
-    # Visualization Section
-    # ---------------------------
-    st.subheader("📈 Data Visualization")
-
-    numeric_columns = filtered_df.select_dtypes(include='number').columns
-
-    if len(numeric_columns) > 0:
-        x_axis = st.selectbox("Select X-Axis", filtered_df.columns)
-        y_axis = st.selectbox("Select Y-Axis", numeric_columns)
-
-        chart_type = st.radio("Select Chart Type", ["Bar", "Line", "Scatter"])
-
-        if chart_type == "Bar":
-            fig = px.bar(filtered_df, x=x_axis, y=y_axis)
-        elif chart_type == "Line":
-            fig = px.line(filtered_df, x=x_axis, y=y_axis)
-        else:
-            fig = px.scatter(filtered_df, x=x_axis, y=y_axis)
-
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("No numeric columns available for visualization.")
-
-else:
-    st.info("Please upload a file to begin.")
+# Raw data
+st.subheader("Raw Data")
+st.dataframe(filtered_df)
